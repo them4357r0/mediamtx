@@ -21,6 +21,7 @@ type PathAccessRequest struct {
 	Credentials      *auth.Credentials
 	IP               net.IP
 	CustomVerifyFunc func(expectedUser string, expectedPass string) bool
+	File             string // 2026.02.23 @muhwan	ADD
 }
 
 // ToAuthRequest converts a path access request into an authentication request.
@@ -39,5 +40,6 @@ func (r *PathAccessRequest) ToAuthRequest() *auth.Request {
 		Credentials:      r.Credentials,
 		IP:               r.IP,
 		CustomVerifyFunc: r.CustomVerifyFunc,
+		File:             r.File, // 2026.02.23 @muhwan ADD
 	}
 }

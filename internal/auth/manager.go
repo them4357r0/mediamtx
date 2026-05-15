@@ -97,8 +97,10 @@ func (m *Manager) Authenticate(req *Request) *Error {
 
 	if err != nil {
 		return &Error{
-			Wrapped:        err,
-			AskCredentials: (req.Credentials.User == "" && req.Credentials.Pass == "" && req.Credentials.Token == ""),
+			Wrapped: err,
+			// 2026.02.24 @muhwan MODIFY  query token 인증
+			// AskCredentials: (req.Credentials.User == "" && req.Credentials.Pass == "" && req.Credentials.Token == ""),
+			AskCredentials: (req.Credentials.User == "" && req.Credentials.Pass == "" && req.Credentials.Token == "" && req.Query == ""),
 		}
 	}
 
@@ -171,6 +173,12 @@ func (m *Manager) authenticateHTTP(req *Request) error {
 		ID:       req.ID,
 		Query:    req.Query,
 	})
+
+	// 2026.02.23 @muhwan ADD
+	if req.Protocol == ProtocolHLS && req.File != "index.m3u8" {
+		// fmt.Println("## HLS files do not auth request ", req.File)
+		return nil
+	}
 
 	res, err := http.Post(m.HTTPAddress, "application/json", bytes.NewReader(enc))
 	if err != nil {

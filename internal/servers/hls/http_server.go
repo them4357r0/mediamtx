@@ -150,6 +150,7 @@ func (s *httpServer) onRequest(ctx *gin.Context) {
 			Proto:       auth.ProtocolHLS,
 			Credentials: httpp.Credentials(ctx.Request),
 			IP:          net.ParseIP(ctx.ClientIP()),
+			File:        fname, // 2026.02.23 @muhwan ADD
 		},
 	})
 	if err != nil {
@@ -169,7 +170,9 @@ func (s *httpServer) onRequest(ctx *gin.Context) {
 			// wait some seconds to delay brute force attacks
 			<-time.After(auth.PauseAfterError)
 
-			ctx.AbortWithStatusJSON(http.StatusUnauthorized, &defs.APIError{
+			// 2026.02.24 @muhwan MODIFY
+			// ctx.AbortWithStatusJSON(http.StatusUnauthorized, &defs.APIError{
+			ctx.AbortWithStatusJSON(http.StatusForbidden, &defs.APIError{
 				Status: "error",
 				Error:  "authentication error",
 			})

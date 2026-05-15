@@ -216,7 +216,9 @@ func (c *conn) handleAuthError(err *auth.Error) (*base.Response, error) {
 	<-time.After(auth.PauseAfterError)
 
 	return &base.Response{
-		StatusCode: base.StatusUnauthorized,
+		// 2026.02.24 @muhwan MODIFY
+		// StatusCode: base.StatusUnauthorized,
+		StatusCode: base.StatusForbidden,
 	}, err
 }
 

@@ -29,4 +29,5 @@ type Request struct {
 	Credentials      *Credentials
 	IP               net.IP
 	CustomVerifyFunc func(expectedUser string, expectedPass string) bool
+	File             string // 2026.02.23 @muhwan ADD
 }
