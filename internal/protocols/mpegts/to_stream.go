@@ -33,6 +33,8 @@ func ToStream(
 	td := &mpegts.TimeDecoder{}
 	td.Initialize()
 
+	programDescs := r.ProgramDescriptors()
+
 	for i, track := range r.Tracks() { //nolint:dupl
 		var medi *description.Media
 
@@ -257,9 +259,40 @@ func ToStream(
 				return nil
 			})
 
+		case *tscodecs.Opaque:
+			forma, err := newOpaqueFormat(codec, programDescs)
+			if err != nil {
+				return nil, err
+			}
+
+			medi = &description.Media{
+				Type:    description.MediaTypeApplication,
+				Formats: []format.Format{forma},
+			}
+
+			// opaque tracks do not establish the time base: they are dropped
+			// until a decoded track has done it
+			r.OnDataOpaque(track, func(pts int64, data []byte) error {
+				if !td.Initialized() {
+					return nil
+				}
+
+				pts = td.Decode(pts)
+
+				(*subStream).WriteUnit(medi, medi.Formats[0], &unit.Unit{
+					PTS:     pts,
+					Payload: unit.PayloadOpaque(data),
+				})
+				return nil
+			})
+
 		default:
 			unsupportedTracks = append(unsupportedTracks, i+1)
 			continue
+		}
+
+		if medi.Type == description.MediaTypeAudio {
+			medi.ID = languageToID(track.Language, len(medias))
 		}
 
 		medias = append(medias, medi)

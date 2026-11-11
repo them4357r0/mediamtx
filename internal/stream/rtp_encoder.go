@@ -395,7 +395,9 @@ func newRTPEncoder(
 		return (*rtpEncoderKLV)(wrapped), nil
 
 	case *format.Generic:
-		if strings.HasPrefix(strings.ToLower(forma.RTPMap()), "flac/") {
+		// opaque MPEG-TS data tracks (internal/protocols/mpegts) have no RTP representation.
+		if strings.HasPrefix(strings.ToLower(forma.RTPMap()), "flac/") ||
+			strings.HasPrefix(strings.ToLower(forma.RTPMap()), "x-mpegts-opaque/") {
 			enc := &rtpEncoderEmpty{}
 			err := enc.init()
 			if err != nil {

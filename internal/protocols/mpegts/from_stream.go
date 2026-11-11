@@ -39,6 +39,7 @@ func FromStream(
 ) error {
 	var w *mcmpegts.Writer
 	var tracks []*mcmpegts.Track
+	var programDescs []byte
 
 	addTrack := func(
 		media *description.Media,
@@ -46,6 +47,10 @@ func FromStream(
 		track *mcmpegts.Track,
 		onData stream.OnDataFunc,
 	) {
+		if lang := idToLanguage(media.ID); lang != "" {
+			track.Language = lang
+		}
+
 		tracks = append(tracks, track)
 		r.OnData(media, forma, onData)
 	}
@@ -53,6 +58,38 @@ func FromStream(
 	for _, media := range desc.Medias {
 		for _, forma := range media.Formats {
 			clockRate := forma.ClockRate()
+
+			if g, ok := forma.(*format.Generic); ok && IsOpaqueFormat(g) {
+				codec, prog, err := opaqueCodecFromFormat(g)
+				if err != nil {
+					r.Parent.Log(logger.Warn, "skipping opaque track: %v", err)
+					continue
+				}
+
+				if programDescs == nil {
+					programDescs = prog
+				}
+
+				track := &mcmpegts.Track{Codec: codec}
+
+				addTrack(
+					media,
+					forma,
+					track,
+					func(u *unit.Unit) error {
+						if u.NilPayload() {
+							return nil
+						}
+
+						sconn.SetWriteDeadline(time.Now().Add(writeTimeout))
+						err2 := (*w).WriteOpaque(track, u.PTS, u.Payload.(unit.PayloadOpaque))
+						if err2 != nil {
+							return err2
+						}
+						return bw.Flush()
+					})
+				continue
+			}
 
 			switch forma := forma.(type) {
 			case *format.H265: //nolint:dupl
@@ -409,6 +446,6 @@ func FromStream(
 		}
 	}
 
-	w = &mcmpegts.Writer{W: bw, Tracks: tracks}
+	w = &mcmpegts.Writer{W: bw, Tracks: tracks, ProgramDescriptors: programDescs}
 	return w.Initialize()
 }
