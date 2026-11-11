@@ -30,8 +30,12 @@ func ToStream(
 	var medias []*description.Media //nolint:prealloc
 	var unsupportedTracks []int
 
-	td := &mpegts.TimeDecoder{}
-	td.Initialize()
+	tdi := &mpegts.TimeDecoder{}
+	tdi.Initialize()
+
+	td := &tsClock{TimeDecoder: tdi}
+	ob := &opaqueBuffer{l: l}
+	td.onInit = ob.flush
 
 	programDescs := r.ProgramDescriptors()
 
@@ -270,19 +274,35 @@ func ToStream(
 				Formats: []format.Format{forma},
 			}
 
-			// opaque tracks do not establish the time base: they are dropped
-			// until a decoded track has done it
-			r.OnDataOpaque(track, func(pts int64, data []byte) error {
-				if !td.Initialized() {
+			r.OnDataOpaque(track, func(pts int64, streamID uint8, data []byte) error {
+				write := func() {
+					// time base is moved like for other tracks (units older than the first
+					// decoded sample get a negative PTS, that is kept)
+					dec := tdi.Decode(pts)
+					if dec < 0 {
+						ob.negative(dec)
+					}
+
+					if codec.Sections && codec.StreamType == scte35StreamType {
+						// pts_adjustment is moved by the same amount
+						data = rebaseSCTE35(data, (pts-dec)&mask33)
+					}
+
+					(*subStream).WriteUnit(medi, medi.Formats[0], &unit.Unit{
+						PTS:     dec,
+						Payload: &unit.PayloadOpaque{StreamID: streamID, Data: data},
+					})
+				}
+
+				// opaque tracks do not establish the time base: until a decoded track
+				// has done it, units are kept
+				if !tdi.Initialized() {
+					data = append([]byte(nil), data...)
+					ob.add(pts, len(data), write)
 					return nil
 				}
 
-				pts = td.Decode(pts)
-
-				(*subStream).WriteUnit(medi, medi.Formats[0], &unit.Unit{
-					PTS:     pts,
-					Payload: unit.PayloadOpaque(data),
-				})
+				write()
 				return nil
 			})
 
@@ -307,4 +327,82 @@ func ToStream(
 	}
 
 	return medias, nil
+}
+
+const scte35StreamType = 0x86
+
+// tsClock is a TimeDecoder that notifies when it has been used for the first time.
+type tsClock struct {
+	*mpegts.TimeDecoder
+	onInit func()
+}
+
+// Decode decodes a MPEG-TS timestamp.
+func (c *tsClock) Decode(ts int64) int64 {
+	v := c.TimeDecoder.Decode(ts)
+	if c.onInit != nil {
+		f := c.onInit
+		c.onInit = nil
+		f()
+	}
+	return v
+}
+
+const (
+	opaqueBufferMaxUnits = 64
+	opaqueBufferMaxBytes = 256 * 1024
+	opaqueBufferMaxSpan  = 2 * 90000
+)
+
+// opaqueBuffer keeps opaque units that are received before the time base is established.
+type opaqueBuffer struct {
+	l logger.Writer
+
+	units     []func()
+	bytes     int
+	firstPTS  int64
+	dropped   int
+	negLogged bool
+}
+
+func (b *opaqueBuffer) add(pts int64, size int, write func()) {
+	if len(b.units) == 0 {
+		b.firstPTS = pts
+	}
+
+	if len(b.units) >= opaqueBufferMaxUnits ||
+		b.bytes+size > opaqueBufferMaxBytes ||
+		(pts-b.firstPTS)&mask33 > opaqueBufferMaxSpan {
+		b.dropped++
+		return
+	}
+
+	b.units = append(b.units, write)
+	b.bytes += size
+}
+
+func (b *opaqueBuffer) flush() {
+	units := b.units
+	b.units = nil
+	b.bytes = 0
+
+	for _, w := range units {
+		w()
+	}
+
+	if b.dropped != 0 {
+		b.l.Log(logger.Warn, "dropped %d timed metadata unit(s) received before the first audio/video sample "+
+			"(buffer limits: %d units, %d bytes, %d s)",
+			b.dropped, opaqueBufferMaxUnits, opaqueBufferMaxBytes, opaqueBufferMaxSpan/90000)
+	}
+}
+
+// negative reports an opaque unit that is older than the first decoded audio/video sample.
+// It is kept with a negative PTS, that is written as a 33-bit wrap.
+func (b *opaqueBuffer) negative(dec int64) {
+	if !b.negLogged {
+		b.negLogged = true
+		b.l.Log(logger.Info, "timed metadata unit older than the first audio/video sample "+
+			"(%d ticks): kept with a negative PTS", dec)
+	}
 }

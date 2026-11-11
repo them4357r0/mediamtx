@@ -82,7 +82,8 @@ func FromStream(
 						}
 
 						sconn.SetWriteDeadline(time.Now().Add(writeTimeout))
-						err2 := (*w).WriteOpaque(track, u.PTS, u.Payload.(unit.PayloadOpaque))
+						p := u.Payload.(*unit.PayloadOpaque)
+						err2 := (*w).WriteOpaque(track, u.PTS, p.StreamID, p.Data)
 						if err2 != nil {
 							return err2
 						}
