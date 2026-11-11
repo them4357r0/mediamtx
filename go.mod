@@ -105,3 +105,5 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
+
+replace github.com/bluenviron/mediacommon/v2 => github.com/them4357r0/mediacommon/v2 v2.9.7-0.20261111114400-8c82b0fa1993
