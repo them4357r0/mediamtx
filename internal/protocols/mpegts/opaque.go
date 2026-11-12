@@ -41,16 +41,38 @@ func IsOpaqueFormat(forma format.Format) bool {
 	return ok && strings.HasPrefix(strings.ToLower(g.RTPMa), OpaqueRTPMapPrefix)
 }
 
+// the fmtp of a format comes from the publisher (SDP): only the stream types that
+// are carried as opaque tracks are accepted, and the descriptors are bounded.
+const (
+	streamTypeID3    = 0x15
+	streamTypeSCTE35 = 0x86
+	maxOpaqueDescLen = 1024 // bytes, for each of desc and prog
+)
+
+func decodeBoundedHex(name string, s string) ([]byte, error) {
+	if len(s) > 2*maxOpaqueDescLen {
+		return nil, fmt.Errorf("%s is too long (%d bytes, max %d)", name, len(s)/2, maxOpaqueDescLen)
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", name, err)
+	}
+	return b, nil
+}
+
 func opaqueCodecFromFormat(g *format.Generic) (*tscodecs.Opaque, []byte, error) {
 	st, err := strconv.ParseUint(g.FMT["st"], 10, 8)
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid stream type: %w", err)
 	}
-	desc, err := hex.DecodeString(g.FMT["desc"])
+	if st != streamTypeID3 && st != streamTypeSCTE35 {
+		return nil, nil, fmt.Errorf("unsupported opaque stream type 0x%02x", st)
+	}
+	desc, err := decodeBoundedHex("desc", g.FMT["desc"])
 	if err != nil {
 		return nil, nil, err
 	}
-	prog, err := hex.DecodeString(g.FMT["prog"])
+	prog, err := decodeBoundedHex("prog", g.FMT["prog"])
 	if err != nil {
 		return nil, nil, err
 	}
